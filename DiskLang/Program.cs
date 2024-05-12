@@ -14,20 +14,38 @@ class Program
                 return;
 
             var parser = new Parser(line);
-            var expression = parser.Parse();
+            var syntaxTree = parser.Parse();
 
             var color = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.DarkGray;
-
-            PrettyPrint(expression);
-
+            PrettyPrint(syntaxTree.Root);
             Console.ForegroundColor = color;
- 
+
+            if (!syntaxTree.Diagnostics.Any())
+            {
+                var e = new Evaluator(syntaxTree.Root);
+                var result = e.Evaluate();
+                Console.WriteLine(result);
+                
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkRed;
+
+                foreach (var diagnostic in syntaxTree.Diagnostics)
+                    Console.WriteLine(diagnostic);
+
+                Console.ForegroundColor = color;
+            }
         }
     }
     static void PrettyPrint(SyntaxNode node, string indent = "", bool isLast = true)
     {
+
+        var marker = isLast ?"└──": "├──";
+
         Console.Write(indent);
+        Console.Write(marker);
         Console.Write(node.Kind);
 
         if (node is SyntaxToken t && t.Value != null)
@@ -38,15 +56,12 @@ class Program
 
         Console.WriteLine();
 
-        //indent += "    ";
+        indent += isLast ? "    " : "│   ";
 
-        if (isLast)
-        {
-            indent += "└──";
-        }
+        var lastChild = node.GetChildren().LastOrDefault();
 
         foreach (var child in node.GetChildren())
-            PrettyPrint(child, indent);
+            PrettyPrint(child, indent, child == lastChild);
     }
 }
 enum SyntaxKind
@@ -87,13 +102,17 @@ class SyntaxToken : SyntaxNode
 }
 class Lexer
 {
+    //this should just tokenize everything
     private readonly string _text;
     private int _position;
+    private List<string> _diagnostics = new List<string>();
 
     public Lexer(string text)
     {
         _text = text;
     }
+
+    public IEnumerable<string> Diagnostics => _diagnostics;
 
     private char Current
     {
@@ -125,7 +144,9 @@ class Lexer
             
             var length = _position - start;
             var text = _text.Substring(start, length);
-            int.TryParse(text, out var value);
+            if (!int.TryParse(text, out var value))
+                _diagnostics.Add($"ERROR: The number {_text} isn't valid Int32");
+
             return new SyntaxToken(SyntaxKind.NumberToken, start, text, value);
         }
         if (char.IsWhiteSpace(Current))
@@ -156,6 +177,7 @@ class Lexer
         else if (Current == ']')
             return new SyntaxToken(SyntaxKind.CloseBracketToken, _position++, "]", null);
 
+        _diagnostics.Add($"ERROR: bad character input: '{Current}'");
         return new SyntaxToken(SyntaxKind.BadToken, _position++, _text.Substring(_position - 1, 1), null);
     }
 }
@@ -202,9 +224,24 @@ sealed class BinaryExpressionSyntax : ExpressionSyntax
         yield return Right;
     }
 }
+sealed class SyntaxTree
+{
+    public SyntaxTree(IEnumerable<string> diagnostics, ExpressionSyntax root, SyntaxToken endOfFileToken)
+    {
+        Root = root;
+        EndOfFileToken = endOfFileToken;
+        Diagnostics = diagnostics.ToArray();
+    }
+    public ExpressionSyntax Root { get; }
+    public SyntaxToken EndOfFileToken { get; }
+    public IReadOnlyList<string> Diagnostics { get; }
+}
 class Parser
 {
+    //this is for making the parse tree, formal syntax should be defined here
     private readonly SyntaxToken[] _tokens;
+
+    private List<string> _diagnostics = new List<string>();
     private int _position;
 
     public Parser (string text)
@@ -224,7 +261,11 @@ class Parser
         } while (token.Kind != SyntaxKind.EndOfFileToken);
 
         _tokens = tokens.ToArray();
+        _diagnostics.AddRange(lexer.Diagnostics);
     }
+
+    public IEnumerable<string> Diagnostics => _diagnostics;
+
     private SyntaxToken Peek(int offset)
     {
         var index = _position + offset;
@@ -245,14 +286,26 @@ class Parser
     {
         if (Current.Kind == kind)
             return NextToken();
+
+        _diagnostics.Add($"ERROR: unexpected token <{Current.Kind}>, expected <{kind}>");
         return new SyntaxToken(kind, Current.Position, null, null);
     }
 
-    public ExpressionSyntax Parse()
+    public SyntaxTree Parse()
+    {
+        var expression = ParseExpression();
+        var endOfFileToken = Match(SyntaxKind.EndOfFileToken);
+        return new SyntaxTree(_diagnostics, expression, endOfFileToken);
+    }
+
+    public ExpressionSyntax ParseExpression()
     {
         var left = ParsePrimaryExpression();
 
-        while (Current.Kind == SyntaxKind.PlusToken || Current.Kind == SyntaxKind.MinusToken)
+        while (Current.Kind == SyntaxKind.PlusToken ||
+                Current.Kind == SyntaxKind.MinusToken ||
+                Current.Kind == SyntaxKind.StarToken ||
+                Current.Kind == SyntaxKind.SlashToken)
         {
             var operatorToken = NextToken();
             var right = ParsePrimaryExpression();
@@ -266,4 +319,40 @@ class Parser
         var numberToken = Match(SyntaxKind.NumberToken);
         return new NumberExpressionSyntax(numberToken);
     }
+}
+class Evaluator
+{
+    //all this is for making math possible after it makes the parse tree
+    private readonly ExpressionSyntax _root;
+
+    public Evaluator(ExpressionSyntax root)
+    {
+        this._root = root;
+    }
+    public int Evaluate()
+    {
+        return EvaluateExpression(_root);
+    }
+    private int EvaluateExpression(ExpressionSyntax node)
+    {
+        if (node is NumberExpressionSyntax n)
+            return (int) n.NumberToken.Value;
+        if (node is BinaryExpressionSyntax b)
+        {
+            var left = EvaluateExpression(b.Left);
+            var right = EvaluateExpression(b.Right);
+
+            if (b.OperatorToken.Kind == SyntaxKind.PlusToken)
+                return left + right;
+            else if (b.OperatorToken.Kind == SyntaxKind.MinusToken)
+                return left - right;
+            else if (b.OperatorToken.Kind == SyntaxKind.StarToken)
+                return left * right;
+            else if (b.OperatorToken.Kind == SyntaxKind.SlashToken)
+                return left / right;
+            else
+                throw new Exception($"Unexpected binary operator <{b.OperatorToken.Kind}>");
+        }
+        throw new Exception($"Unexpected node <{node.Kind}>");
+    }   
 }
