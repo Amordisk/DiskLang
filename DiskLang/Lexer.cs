@@ -70,6 +70,8 @@ class Lexer
             return new SyntaxToken(SyntaxKind.StarToken, _position++, "*", null);
         else if (Current == '/')
             return new SyntaxToken(SyntaxKind.SlashToken, _position++, "/", null);
+        else if (Current == '%')
+            return new SyntaxToken(SyntaxKind.PercentToken, _position++, "%", null);
         else if (Current == '(')
             return new SyntaxToken(SyntaxKind.OpenParenthesisToken, _position++, "(", null);
         else if (Current == ')')

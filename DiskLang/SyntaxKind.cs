@@ -8,6 +8,7 @@ enum SyntaxKind
     MinusToken,
     StarToken,
     SlashToken,
+    PercentToken,
     OpenParenthesisToken,
     CloseParenthesisToken,
     OpenBracketToken,

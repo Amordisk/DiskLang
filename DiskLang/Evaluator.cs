@@ -36,6 +36,8 @@ class Evaluator
                 return left * right;
             else if (b.OperatorToken.Kind == SyntaxKind.SlashToken)
                 return left / right;
+            else if (b.OperatorToken.Kind == SyntaxKind.PercentToken)
+                return left % right;
             else
                 throw new Exception($"Unexpected binary operator <{b.OperatorToken.Kind}>");
         }

@@ -94,7 +94,8 @@ class Parser
         var left = ParsePrimaryExpression();
 
         while (Current.Kind == SyntaxKind.StarToken ||
-                Current.Kind == SyntaxKind.SlashToken)
+                Current.Kind == SyntaxKind.SlashToken ||
+                Current.Kind == SyntaxKind.PercentToken)
         {
             var operatorToken = NextToken();
             var right = ParsePrimaryExpression();
